@@ -46,6 +46,7 @@ def gradient():
         evold = ev
         dEtx = (calcValue(temp_x + dd, tem_y, target, indexes_temp, scan) - ev) / dd
         dEty = (calcValue(temp_x, tem_y + dd, target, indexes_temp, scan) - ev) / dd
+        dEth = (calcValue(temp_x, tem_y + dd, target, indexes_temp, scan) - ev) / dd
 
         dx = -kk * dEtx
         dy = -kk * dEty
@@ -60,17 +61,6 @@ def gradient():
             delta_x += dx
             delta_y += dy
     return evmin, delta_x, delta_y
-
-def transpointcloud_zero(scan_cloud, zero_cloud)
-    cloudmean = np.mean(scan_cloud, axis=1)
-    print("mean:"cloudmean)
-    zero_cloud = scan_cloud - cloudmean
-    zerocloud_mean = np.mean(zero_cloud, axis=1)
-    print("set0:"+ zerocloud_mean)
-
-def transpointcloud(trans_pose, scan_cloud, trans_cloud):
-    
-    trans_cloud = scan_cloud + cloudmean
 
 # 勾配計算時使用スコア計算
 def calcValue(tx, ty, th):
@@ -88,6 +78,16 @@ def calcValue(tx, ty, th):
         error += edis
     return error
 
+def transpointcloud_zero(scan_cloud, zero_cloud)
+    cloudmean = np.mean(scan_cloud, axis=1)
+    print("mean:"cloudmean)
+    zero_cloud = scan_cloud - cloudmean
+    zerocloud_mean = np.mean(zero_cloud, axis=1)
+    print("set0:"+ zerocloud_mean)
+
+def transpointcloud(trans_pose, scan_cloud, trans_cloud):
+    
+    trans_cloud = scan_cloud + cloudmean
 
 if __name__ == "__main__":
     argv = sys.argv
