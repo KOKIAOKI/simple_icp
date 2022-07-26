@@ -36,6 +36,9 @@ def output_init_graph():
 
 
 def gradient():
+    #　点群同士の距離の総和、最近某探索
+    ev, indexes_temp = kd_tree.query(scan_cloud_temp)
+
     evmin = ev
     delta_x, delta_y = 0, 0
     evold = 100000
@@ -58,9 +61,16 @@ def gradient():
             delta_y += dy
     return evmin, delta_x, delta_y
 
-def transpointcloud(scan_cloud, current_pose):
+def transpointcloud_zero(scan_cloud, zero_cloud)
     cloudmean = np.mean(scan_cloud, axis=1)
+    print("mean:"cloudmean)
+    zero_cloud = scan_cloud - cloudmean
+    zerocloud_mean = np.mean(zero_cloud, axis=1)
+    print("set0:"+ zerocloud_mean)
+
+def transpointcloud(trans_pose, scan_cloud, trans_cloud):
     
+    trans_cloud = scan_cloud + cloudmean
 
 # 勾配計算時使用スコア計算
 def calcValue(tx, ty, th):
@@ -93,37 +103,40 @@ if __name__ == "__main__":
     # kd_tree
     kd_tree = KDTree(target_cloud)
 
-    scan_cloud_temp = np.copy(scan_cloud)
-
-    scan_points_num = scan_cloud.shape
+    # scan点群をの平均値を(0,0)へ移動
+    def transpointcloud_zero(scan_cloud, scan_cloud)
 
     # 初期化
     current_pose = Pose2D()
     pose_min = Pose2D()
     estPose = Pose2D()
 
+    # 点群を初期位置に移動
     current_pose.x = float(input("initial_x"))
     current_pose.y = float(input("initial_y"))
     current_pose.th = float(input("initial_th"))
     pose_min = current_pose
-    transpointcloud(scan_cloud, current_pose)
+    
+    # transpointcloud(current_pose, scan_cloud, scan_cloud_temp)
 
     ev = 0
     evmin, evold = 10000, 10000
     evthere = 0.000001
     itr = 1  # iteration
+    scan_points_num = scan_cloud.shape #配列数
+
     # ICP
     while abs(evold - ev) > evthere:
         if itr > 1:
             evold = ev
-        dists, indexes_temp = kd_tree.query(scan_cloud)  # 最近傍探索をやり直す
-        ev = np.sum(dists**2) / scan_points_num
-        if itr == 1:
-            output_init_graph()
-            evold = ev  # 最初は最近傍探索したときの距離の総和
+        # dists, indexes_temp = kd_tree.query(scan_cloud_temp)  # 最近傍探索をやり直す
+        # ev = np.sum(dists**2) / scan_points_num
+        # if itr == 1:
+        #     output_init_graph()
+        #     evold = ev  # 最初は最近傍探索したときの距離の総和
 
         new_pose = Pose2D()
-        ev = gradient(current_pose, new_pose)  # 勾配方向に直線的に進んでいった結果、その進んだ距離と誤差
+        ev = gradient(scan_cloud, current_pose, new_pose)  # 勾配方向に直線的に進んでいった結果、その進んだ距離と誤差
         current_pose = new_pose
         transpointcloud(scan_cloud, current_pose)
 
