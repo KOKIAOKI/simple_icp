@@ -68,9 +68,12 @@ def gradient(target_cloud, scan_cloud, init_pose):
     evold = 100000
     while abs(evold - ev) > evthere:
         evold = ev
-        dEtx = func_tx(t_,target_cloud, scan_cloud,indexes_temp,ev)
-        dEty = func_ty(t_,target_cloud, scan_cloud,indexes_temp,ev)
-        dEth = func_tth(t_,target_cloud, scan_cloud,indexes_temp,ev)
+        Exdd = calcValue(t_.x + dd, t_.y, t_.th,target_cloud, scan_cloud,indexes_temp)
+        Eydd = calcValue(t_.x, t_.y + dd, t_.th,target_cloud, scan_cloud,indexes_temp)
+        Ethda = calcValue(t_.x, t_.y, t_.th + da,target_cloud, scan_cloud,indexes_temp)
+        dEtx = (Exdd - ev)/ dd
+        dEty = (Eydd - ev)/ dd
+        dEth = (Ethda - ev)/ da
 
         dx = -kk * dEtx
         dy = -kk * dEty
@@ -105,17 +108,27 @@ def Newton(target_cloud, scan_cloud, init_pose):
     # ev = calcValue(t_.x, t_.y, t_.th, target_cloud, scan_cloud, indexes_temp)
     # print("error_func_ev",ev)
     
-    dEtx = func_tx(t_,target_cloud, scan_cloud,indexes_temp,ev)
-    dEty = func_ty(t_,target_cloud, scan_cloud,indexes_temp,ev)
-    dEth = func_tth(t_,target_cloud, scan_cloud,indexes_temp,ev)
+    Exdd = calcValue(t_.x + dd, t_.y, t_.th,target_cloud, scan_cloud,indexes_temp)
+    Eydd = calcValue(t_.x, t_.y + dd, t_.th,target_cloud, scan_cloud,indexes_temp)
+    Ethda = calcValue(t_.x, t_.y, t_.th + da,target_cloud, scan_cloud,indexes_temp)
+    dEtx = (Exdd - ev)/ dd
+    dEty = (Eydd - ev)/ dd
+    dEth = (Ethda - ev)/ da
     F = np.array([[dEtx],[dEty],[dEth]])
 
-    dEtxtx = func_dEtxtx(t_,target_cloud, scan_cloud,indexes_temp,dEtx)
-    dEtyty = func_ty(t_,target_cloud, scan_cloud,indexes_temp,dEty)
-    dEtthtth = func_tth(t_,target_cloud, scan_cloud,indexes_temp,dEth)
-    dEtxty = func_tx(t_,target_cloud, scan_cloud,indexes_temp,dEty)
-    dEtxth = func_tx(t_,target_cloud, scan_cloud,indexes_temp,dEth)
-    dEtyth = func_ty(t_,target_cloud, scan_cloud,indexes_temp,dEth)
+    Ex2dd = calcValue(t_.x + 2*dd, t_.y, t_.th,target_cloud, scan_cloud,indexes_temp)
+    Ey2dd = calcValue(t_.x, t_.y + 2*dd, t_.th,target_cloud, scan_cloud,indexes_temp)
+    Eth2da = calcValue(t_.x, t_.y, t_.th + 2*da,target_cloud, scan_cloud,indexes_temp)
+    Exddydd = calcValue(t_.x + dd, t_.y + dd, t_.th,target_cloud, scan_cloud,indexes_temp)
+    Exddthdd = calcValue(t_.x + dd, t_.y, t_.th + da,target_cloud, scan_cloud,indexes_temp)
+    Eyddthdd = calcValue(t_.x, t_.y + dd, t_.th + da,target_cloud, scan_cloud,indexes_temp)
+
+    dEtxtx = (Ex2dd - 2*Exdd + ev) / pow(dd,2)
+    dEtyty =  (Ey2dd - 2*Eydd + ev) / pow(dd,2)
+    dEtthtth = (Eth2da - 2*Ethda + ev) / pow(da,2)
+    dEtxty = (Exddydd - 2*Eydd + ev) / pow(dd,2)
+    dEtxth = (Exddthdd - 2*Ethda + ev) / pow(dd,2)
+    dEtyth = (Eyddthdd - 2*Ethda + ev) / pow(dd,2)
     H = np.array([[dEtxtx,dEtxty,dEtxth],[dEtxty,dEtyty,dEtyth],[dEtxth,dEtyth,dEtthtth]])
 
     # LU分解でΔxを求める
@@ -132,18 +145,6 @@ def Newton(target_cloud, scan_cloud, init_pose):
     print("tx",t_.x)
     txmin = copy.deepcopy(t_)
     return(txmin, evmin, indexes_temp)
-
-def func_tx(t_,target_cloud, scan_cloud,indexes_temp,ev):
-    return (calcValue(t_.x + dd, t_.y, t_.th,target_cloud, scan_cloud,indexes_temp) - ev) / da
-
-def func_ty(t_,target_cloud, scan_cloud,indexes_temp,ev):
-    return (calcValue(t_.x, t_.y + dd, t_.th,target_cloud, scan_cloud,indexes_temp) - ev) / da
-
-def func_tth(t_,target_cloud, scan_cloud,indexes_temp,ev):
-    return (calcValue(t_.x, t_.y, t_.th + da,target_cloud, scan_cloud,indexes_temp) - ev) / da
-
-def func_dEtxtx(t_,target_cloud, scan_cloud,indexes_temp,dEtx):
-    return (calcValue(t_.x + 2*dd, t_.y, t_.th,target_cloud, scan_cloud,indexes_temp) - )
 
 # 勾配計算時使用スコア計算
 def calcValue(tx, ty, th,target_cloud, source_cloud,indexes_temp):
