@@ -13,7 +13,8 @@ from scipy.spatial import KDTree
 import scipy.linalg as linalg
 from matplotlib import cm
 
-dd, da, kk = 0.001, 0.001, 0.01
+# paramater
+dd, da, kk = 0.0001, 0.001, 0.01
 evthere = 0.000001
 scan_points_num = 0
 #graph initialize
@@ -36,6 +37,13 @@ class Array2D:
         self.y = np.empty((0,1))
         self.th = np.empty((0,1))
         self.ev = np.empty((0,1))
+
+# class OptItem:
+#     def __init__(self):
+#         self.evmin = 10000
+#         self.evold = 10000
+#         self.ev = 0
+
 
 def output_init_graph(target_cloud, scan_cloud, indexes_temp):
     vis0 = ax_kd_tree.plot(target_cloud[:, 0], target_cloud[:, 1], "ok")
@@ -66,6 +74,7 @@ def gradient(target_cloud, scan_cloud, init_pose):
 
     evmin = ev
     evold = 100000
+
     while abs(evold - ev) > evthere:
         evold = ev
         Exdd = calcValue(t_.x + dd, t_.y, t_.th,target_cloud, scan_cloud,indexes_temp)
@@ -112,7 +121,7 @@ def Newton(target_cloud, scan_cloud, init_pose):
     dEtx = (Exdd - ev)/ dd
     dEty = (Eydd - ev)/ dd
     dEth = (Ethda - ev)/ da
-    F = np.around(np.array([[dEtx],[dEty],[dEth]]),decimals=5)
+    F = np.around(np.array([[dEtx],[dEty],[dEth]]))
 
     Ex2dd = calcValue(t_.x + 2*dd, t_.y, t_.th,target_cloud, scan_cloud,indexes_temp)
     Ey2dd = calcValue(t_.x, t_.y + 2*dd, t_.th,target_cloud, scan_cloud,indexes_temp)
@@ -127,7 +136,7 @@ def Newton(target_cloud, scan_cloud, init_pose):
     dEtxty = (Exddydd - Eydd - Exdd + ev) / pow(dd,2)
     dEtxth = (Exddthdd - Ethda -Exdd + ev) / dd*da
     dEtyth = (Eyddthdd - Ethda - Eydd + ev) / dd*da
-    H = np.around(np.array([[dEtxtx,dEtxty,dEtxth],[dEtxty,dEtyty,dEtyth],[dEtxth,dEtyth,dEtthtth]]),decimals=5)
+    H = np.around(np.array([[dEtxtx,dEtxty,dEtxth],[dEtxty,dEtyty,dEtyth],[dEtxth,dEtyth,dEtthtth]]))
 
     invH = np.linalg.inv(H)
     delta_pose = np.dot(invH,-F)
@@ -138,6 +147,9 @@ def Newton(target_cloud, scan_cloud, init_pose):
     evmin = calcValue(t_.x, t_.y, t_.th, target_cloud, scan_cloud,indexes_temp)
     txmin = copy.deepcopy(t_)
     return(txmin, evmin, indexes_temp)
+
+# def cg(target_cloud, scan_cloud, current_pose):
+
 
 # 勾配計算時使用スコア計算
 def calcValue(tx, ty, th,target_cloud, source_cloud,indexes_temp):
@@ -227,6 +239,8 @@ if __name__ == "__main__":
             new_pose ,ev , indexes_temp = gradient(target_cloud, scan_cloud, current_pose) # 勾配法
         elif mode == 1:
             new_pose ,ev , indexes_temp = Newton(target_cloud, scan_cloud, current_pose) # ニュートン法
+        # elif mode == 2:
+        #     new_pose ,ev , indexes_temp = cg(target_cloud, scan_cloud, current_pose)
 
         current_pose = new_pose
 
