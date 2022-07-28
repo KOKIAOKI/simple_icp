@@ -13,7 +13,7 @@ from scipy.spatial import KDTree
 import scipy.linalg as linalg
 from matplotlib import cm
 
-dd, da, kk = 0.00001, 0.00001, 0.01
+dd, da, kk = 0.001, 0.001, 0.01
 evthere = 0.000001
 scan_points_num = 0
 #graph initialize
@@ -74,6 +74,7 @@ def gradient(target_cloud, scan_cloud, init_pose):
         dEtx = (Exdd - ev)/ dd
         dEty = (Eydd - ev)/ dd
         dEth = (Ethda - ev)/ da
+        F = np.array([[dEtx],[dEty],[dEth]])
 
         dx = -kk * dEtx
         dy = -kk * dEty
@@ -104,9 +105,6 @@ def Newton(target_cloud, scan_cloud, init_pose):
 
     #最近傍探索時の誤差計算
     ev = np.sum(dists**2) / scan_points_num
-    # print("search_ev",ev)
-    # ev = calcValue(t_.x, t_.y, t_.th, target_cloud, scan_cloud, indexes_temp)
-    # print("error_func_ev",ev)
     
     Exdd = calcValue(t_.x + dd, t_.y, t_.th,target_cloud, scan_cloud,indexes_temp)
     Eydd = calcValue(t_.x, t_.y + dd, t_.th,target_cloud, scan_cloud,indexes_temp)
@@ -114,7 +112,7 @@ def Newton(target_cloud, scan_cloud, init_pose):
     dEtx = (Exdd - ev)/ dd
     dEty = (Eydd - ev)/ dd
     dEth = (Ethda - ev)/ da
-    F = np.array([[dEtx],[dEty],[dEth]])
+    F = np.around(np.array([[dEtx],[dEty],[dEth]]),decimals=5)
 
     Ex2dd = calcValue(t_.x + 2*dd, t_.y, t_.th,target_cloud, scan_cloud,indexes_temp)
     Ey2dd = calcValue(t_.x, t_.y + 2*dd, t_.th,target_cloud, scan_cloud,indexes_temp)
@@ -126,23 +124,18 @@ def Newton(target_cloud, scan_cloud, init_pose):
     dEtxtx = (Ex2dd - 2*Exdd + ev) / pow(dd,2)
     dEtyty =  (Ey2dd - 2*Eydd + ev) / pow(dd,2)
     dEtthtth = (Eth2da - 2*Ethda + ev) / pow(da,2)
-    dEtxty = (Exddydd - 2*Eydd + ev) / pow(dd,2)
-    dEtxth = (Exddthdd - 2*Ethda + ev) / pow(dd,2)
-    dEtyth = (Eyddthdd - 2*Ethda + ev) / pow(dd,2)
-    H = np.array([[dEtxtx,dEtxty,dEtxth],[dEtxty,dEtyty,dEtyth],[dEtxth,dEtyth,dEtthtth]])
+    dEtxty = (Exddydd - Eydd - Exdd + ev) / pow(dd,2)
+    dEtxth = (Exddthdd - Ethda -Exdd + ev) / dd*da
+    dEtyth = (Eyddthdd - Ethda - Eydd + ev) / dd*da
+    H = np.around(np.array([[dEtxtx,dEtxty,dEtxth],[dEtxty,dEtyty,dEtyth],[dEtxth,dEtyth,dEtthtth]]),decimals=5)
 
-    # LU分解でΔxを求める
-    # LU = linalg.lu_factor(H) 
-    # delta_pose = linalg.lu_solve(LU, -F)
-    print("H",H)
     invH = np.linalg.inv(H)
-    delta_pose = np.dot(H,-F)
+    delta_pose = np.dot(invH,-F)
 
     t_.x += delta_pose[0,0]
     t_.y += delta_pose[1,0]
     t_.th += delta_pose[2,0]
     evmin = calcValue(t_.x, t_.y, t_.th, target_cloud, scan_cloud,indexes_temp)
-    print("tx",t_.x)
     txmin = copy.deepcopy(t_)
     return(txmin, evmin, indexes_temp)
 
@@ -205,6 +198,10 @@ if __name__ == "__main__":
 
     # 点群を初期位置に移動
     mode = int(input("ICP/gradient:0, ICP/Newton:1 "))
+    if mode == 0:
+        output_name = "gradient"
+    if mode == 1:
+        output_name = "newton"
     current_pose.x = float(input("initial_x: "))
     current_pose.y = float(input("initial_y: "))
     current_pose.th = float(input("initial_th: "))
@@ -236,12 +233,10 @@ if __name__ == "__main__":
         if ev < evmin: #前のスコアより低ければ最適解候補を更新
             pose_min = new_pose
             evmin = ev
-            print("trj_array.x",trj_array.x)
-            print("pose_min.x",pose_min.x)
             trj_array.x = np.append(trj_array.x, np.array([[pose_min.x]]), axis=0)
             trj_array.y = np.append(trj_array.y, np.array([[pose_min.y]]), axis=0)
             trj_array.th = np.append(trj_array.th, np.array([[pose_min.th]]), axis=0)
-
+            
         itr += 1
         if itr > 30:
             break
@@ -263,10 +258,10 @@ if __name__ == "__main__":
     ax_kd_tree.grid()
     ax_kd_tree.set_aspect('equal')
     ani = animation.ArtistAnimation(kdtree_fig, frames_kdtree, interval=500, blit=True, repeat_delay=1000)
-    ani.save('convergence_animation.gif')
+    ani.save(output_name + 'convergence_animation.mp4')
 
     #軌跡
-    width_offset = 0.02
+    width_offset = 0.01
     max_offset = 1.0
     points = int((max_offset/width_offset)*2 + 1)
     offset_array = Array2D() 
@@ -292,10 +287,12 @@ if __name__ == "__main__":
     ax_hmap = ax_trj.pcolor(X_dist, Y_dist, EX_dist, cmap=cm.jet, vmin=er_min, vmax=er_max)
     ax_trj.plot(trj_array.x,trj_array.y,'or',linestyle='solid')
     plt.colorbar(ax_hmap, label='error average[m]')
+    ax_trj.text(0.1,1.05, 'iteration: {} '.format(itr), fontsize=15, transform=ax_trj.transAxes)
+    ax_trj.text(0.1,1.01, 'execution time[ms]: {} '.format(round(exe_time,2)), fontsize=15, transform=ax_trj.transAxes)
     ax_trj.set_xlabel('x [m]')
     ax_trj.set_ylabel('y [m]')
     ax_trj.grid()
     ax_trj.set_aspect('equal')
-    trj_fig.savefig("trj.png")
+    trj_fig.savefig(output_name + "trj.png")
 
     plt.show()
