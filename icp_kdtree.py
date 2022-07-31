@@ -14,14 +14,16 @@ import scipy.linalg as linalg
 from matplotlib import cm
 
 # paramater
-dd, da, kk = 0.0001, 0.001, 0.01
+dd, da, kk = 0.001, 0.001, 0.01
 evthere = 0.000001
 scan_points_num = 0
 #graph initialize
+init_fig = plt.figure("Initial pose")
+ax_init_fig = init_fig.add_subplot(111)
 frames_kdtree = []
 kdtree_fig = plt.figure("kd_tree", figsize=(16, 9), dpi=120)
 ax_kd_tree = kdtree_fig.add_subplot(111)
-trj_fig = plt.figure("trjectory", figsize=(16, 9), dpi=120)
+trj_fig = plt.figure("Trjectory", figsize=(16, 9), dpi=120)
 ax_trj = trj_fig.add_subplot(111)
 
 
@@ -44,8 +46,42 @@ class Array2D:
 #         self.evold = 10000
 #         self.ev = 0
 
+def setInputSource(scan_cloud):
 
-def output_init_graph(target_cloud, scan_cloud, indexes_temp):
+
+
+def transpointcloud_zero(scan_cloud):
+    cloudmean = np.mean(scan_cloud, axis=0)
+    return(scan_cloud - cloudmean)
+    # zerocloud_mean = np.mean(zero_cloud, axis=0)
+    # print("set0:",zerocloud_mean)
+    # print(zero_cloud)
+
+def transpointcloud(scan_cloud, trans_pose):
+    trans_cloud = np.empty((0,2))
+    for i in range(len(scan_cloud)):
+        cx, cy = scan_cloud[i, 0], scan_cloud[i, 1]
+        tx, ty, tth =  trans_pose.x, trans_pose.y, trans_pose.th
+        x = math.cos(tth) * cx - math.sin(tth) * cy + tx
+        y = math.sin(tth) * cx + math.cos(tth) * cy + ty
+        trans_cloud = np.append(trans_cloud, np.array([[x,y]]), axis=0)
+    return(trans_cloud)
+
+
+def output_init_graph(target_cloud, scan_cloud):
+    ax_init_fig.set_title("Initial pose")
+    ax_init_fig.plot(target_cloud[:, 0], target_cloud[:, 1], "ok")
+    ax_init_fig.plot(scan_cloud[:, 0], scan_cloud[:, 1], "or")
+    cloudmean = np.mean(scan_cloud, axis=0)
+    ax_init_fig.plot(cloudmean[0],cloudmean[1],"om")
+    ax_init_fig.text(cloudmean[0],cloudmean[1],"Average of the scan points")
+    ax_init_fig.set_xlabel('x [m]')
+    ax_init_fig.set_ylabel('y [m]')
+    ax_init_fig.grid()
+    ax_init_fig.set_aspect('equal')
+    
+
+def output_anim_graph(target_cloud, scan_cloud, indexes_temp):
     vis0 = ax_kd_tree.plot(target_cloud[:, 0], target_cloud[:, 1], "ok")
     vis1 = ax_kd_tree.plot(scan_cloud[:, 0], scan_cloud[:, 1], "or")
     vis2 = []
@@ -64,7 +100,7 @@ def gradient(target_cloud, scan_cloud, init_pose):
     dists, indexes_temp = kd_tree.query(source_cloud)
 
     #　アニメーション生成
-    output_init_graph(target_cloud, source_cloud, indexes_temp)
+    output_anim_graph(target_cloud, source_cloud, indexes_temp)
 
     #最近傍探索時の誤差計算
     ev = np.sum(dists**2) / scan_points_num
@@ -110,7 +146,7 @@ def Newton(target_cloud, scan_cloud, init_pose):
     dists, indexes_temp = kd_tree.query(source_cloud)
 
     #　アニメーション生成
-    output_init_graph(target_cloud, source_cloud, indexes_temp)
+    output_anim_graph(target_cloud, source_cloud, indexes_temp)
 
     #最近傍探索時の誤差計算
     ev = np.sum(dists**2) / scan_points_num
@@ -121,7 +157,7 @@ def Newton(target_cloud, scan_cloud, init_pose):
     dEtx = (Exdd - ev)/ dd
     dEty = (Eydd - ev)/ dd
     dEth = (Ethda - ev)/ da
-    F = np.around(np.array([[dEtx],[dEty],[dEth]]))
+    F = np.around(np.array([[dEtx],[dEty],[dEth]]),decimals=5)
 
     Ex2dd = calcValue(t_.x + 2*dd, t_.y, t_.th,target_cloud, scan_cloud,indexes_temp)
     Ey2dd = calcValue(t_.x, t_.y + 2*dd, t_.th,target_cloud, scan_cloud,indexes_temp)
@@ -136,7 +172,7 @@ def Newton(target_cloud, scan_cloud, init_pose):
     dEtxty = (Exddydd - Eydd - Exdd + ev) / pow(dd,2)
     dEtxth = (Exddthdd - Ethda -Exdd + ev) / dd*da
     dEtyth = (Eyddthdd - Ethda - Eydd + ev) / dd*da
-    H = np.around(np.array([[dEtxtx,dEtxty,dEtxth],[dEtxty,dEtyty,dEtyth],[dEtxth,dEtyth,dEtthtth]]))
+    H = np.around(np.array([[dEtxtx,dEtxty,dEtxth],[dEtxty,dEtyty,dEtyth],[dEtxth,dEtyth,dEtthtth]]),decimals=5)
 
     invH = np.linalg.inv(H)
     delta_pose = np.dot(invH,-F)
@@ -168,23 +204,6 @@ def calcValue(tx, ty, th,target_cloud, source_cloud,indexes_temp):
     error = error/scan_points_num
     return(error)
 
-def transpointcloud_zero(scan_cloud):
-    cloudmean = np.mean(scan_cloud, axis=0)
-    print("mean:",cloudmean)
-    return(scan_cloud - cloudmean)
-    # zerocloud_mean = np.mean(zero_cloud, axis=0)
-    # print("set0:",zerocloud_mean)
-    # print(zero_cloud)
-
-def transpointcloud(scan_cloud, trans_pose):
-    trans_cloud = np.empty((0,2))
-    for i in range(len(scan_cloud)):
-        cx, cy = scan_cloud[i, 0], scan_cloud[i, 1]
-        tx, ty, tth =  trans_pose.x, trans_pose.y, trans_pose.th
-        x = math.cos(tth) * cx - math.sin(tth) * cy + tx
-        y = math.sin(tth) * cx + math.cos(tth) * cy + ty
-        trans_cloud = np.append(trans_cloud, np.array([[x,y]]), axis=0)
-    return(trans_cloud)
 
 if __name__ == "__main__":
     argv = sys.argv
@@ -194,29 +213,44 @@ if __name__ == "__main__":
     scan_df = pd.read_csv(scan_cloud_path)
 
     target_cloud = tar_df.to_numpy()
-    scan_cloud = scan_df.to_numpy()
+    user_input_cloud = scan_df.to_numpy()
     del tar_df, scan_df
 
     # kd_tree
     kd_tree = KDTree(target_cloud)
     # scan点群をの平均値を(0,0)へ移動
-    scan_cloud = transpointcloud_zero(scan_cloud)
+    scan_cloud = transpointcloud_zero(user_input_cloud)
 
     # 初期化
+    init_temp_Pose = Pose2D()
     current_pose = Pose2D()
     pose_min = Pose2D()
-    estPose = Pose2D()
+    est_Pose = Pose2D()
     trj_array = Array2D() 
 
     # 点群を初期位置に移動
-    mode = int(input("ICP/gradient:0, ICP/Newton:1 "))
+    mode = int(input("[ ICP/gradient:0, ICP/Newton:1, ICP/CG:2 ] >> "))
     if mode == 0:
         output_name = "gradient"
     if mode == 1:
         output_name = "newton"
-    current_pose.x = float(input("initial_x: "))
-    current_pose.y = float(input("initial_y: "))
-    current_pose.th = float(input("initial_th: "))
+    if mode == 2:
+        output_name = "CG"
+
+    # 初期位置設定
+    output_init_graph(target_cloud, user_input_cloud)
+    init_fig.show()
+    print("<< Please set the initail pose >>")
+    continue_adj = 0
+    while (continue_adj == 0):
+        current_pose.x = float(input("initial_x >> "))
+        current_pose.y = float(input("initial_y >> "))
+        current_pose.th = float(input("initial_theta >> "))
+        ax_init_fig.cla()
+        init_temp_cloud = transpointcloud(scan_cloud, current_pose)
+        output_init_graph(target_cloud, init_temp_cloud)
+        init_fig.show()
+        continue_adj = int(input("Are you sure you want to conduct ICP from this pose? No:0 Yes:1 >>"))
     pose_min = current_pose
     trj_array.x = np.append(trj_array.x, np.array([[pose_min.x]]), axis=0)
     trj_array.y = np.append(trj_array.y, np.array([[pose_min.y]]), axis=0)
@@ -240,7 +274,7 @@ if __name__ == "__main__":
         elif mode == 1:
             new_pose ,ev , indexes_temp = Newton(target_cloud, scan_cloud, current_pose) # ニュートン法
         # elif mode == 2:
-        #     new_pose ,ev , indexes_temp = cg(target_cloud, scan_cloud, current_pose)
+        #     new_pose ,ev , indexes_temp = cg(target_cloud, scan_cloud, current_pose) # 共役勾配法
 
         current_pose = new_pose
 
@@ -257,12 +291,12 @@ if __name__ == "__main__":
 
     end_time = time.perf_counter()
     exe_time = (end_time - start_time)*1000
-    estPose = pose_min #推定値
-    matched_cloud = transpointcloud(scan_cloud, estPose) #マッチングした点群
-    output_init_graph(target_cloud, matched_cloud, indexes_temp) #マッチングしたときの点群をアニメーションに追加
+    est_Pose = pose_min #推定値
+    matched_cloud = transpointcloud(scan_cloud, est_Pose) #マッチングした点群
+    output_anim_graph(target_cloud, matched_cloud, indexes_temp) #マッチングしたときの点群をアニメーションに追加
 
     # 出力
-    print("estimated pose:","x",estPose.x,"y",estPose.y,"z",estPose.th)
+    print("estimated pose:","x",est_Pose.x,"y",est_Pose.y,"theta",est_Pose.th)
     print("iteration:",itr)
     print("exe_time:",exe_time,"[ms]")
 
@@ -272,7 +306,7 @@ if __name__ == "__main__":
     ax_kd_tree.grid()
     ax_kd_tree.set_aspect('equal')
     ani = animation.ArtistAnimation(kdtree_fig, frames_kdtree, interval=500, blit=True, repeat_delay=1000)
-    ani.save(output_name + 'convergence_animation.mp4')
+    # ani.save(output_name + 'convergence_animation.mp4')
 
     #軌跡
     width_offset = 0.01
@@ -282,8 +316,8 @@ if __name__ == "__main__":
     for i in range(points):
         for j in range(points):
             offset_pose = Pose2D()
-            offset_pose.x = estPose.x + width_offset * i - max_offset
-            offset_pose.y = estPose.y + width_offset * j - max_offset
+            offset_pose.x = est_Pose.x + width_offset * i - max_offset
+            offset_pose.y = est_Pose.y + width_offset * j - max_offset
             offset_pose.th = 0
             offset_cloud = transpointcloud(scan_cloud, offset_pose)
             err_sum, indexes_dist = kd_tree.query(offset_cloud)
