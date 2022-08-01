@@ -32,10 +32,14 @@ class ICPProcess:
     def __init__(self):
         self.scan_cloud = np.empty((0,3))
         self.source_cloud = np.empty((0,3))
+
         self.dd = 0.001
         self.da = 0.001
         self.kk = 0.01
         self.evthere = 0.000001
+
+        self.m = np.empty((0,3))
+        self.m_next = np.empty((0,3))
 
         self.init_fig = plt.figure("Initial pose")
         self.ax_init_fig = self.init_fig.add_subplot(111)
@@ -116,7 +120,7 @@ class ICPProcess:
                 trj_array.y = np.append(trj_array.y, np.array([[self.pose_min.y]]), axis=0)
                 trj_array.th = np.append(trj_array.th, np.array([[self.pose_min.th]]), axis=0)
                 
-            if self.itr > 30:
+            if self.itr > 29:
                 break
             self.itr += 1
             
@@ -126,7 +130,7 @@ class ICPProcess:
         self.source_cloud = self.transpointcloud(self.scan_cloud, init_pose)
         t_ = copy.deepcopy(init_pose)
 
-        # 点群同士の距離の総和、最近某探索
+        # 点群同士の距離の総和、最近傍探索
         dists, self.indexes_temp = self.kd_tree.query(self.source_cloud)
 
         # アニメーション生成
@@ -139,8 +143,8 @@ class ICPProcess:
         while abs(evold - ev) > self.evthere:
             evold = ev
 
-            Exdd, Eydd, Ethda = self.E_delta1(t_) #微小変位
-            F = self.E_first_derivative(Exdd, Eydd, Ethda, ev) #勾配
+            Exdd, Eydd, Ethda = self.E_delta1(t_) # 微小変位
+            F = self.E_first_derivative(Exdd, Eydd, Ethda, ev) # 勾配
             dx = -self.kk * F[0,0]
             dy = -self.kk * F[1,0]
             dth = -self.kk * F[2,0]
@@ -171,11 +175,11 @@ class ICPProcess:
         # 最近傍探索時の誤差計算
         ev = np.sum(dists**2) / self.scan_points_num
 
-        Exdd, Eydd, Ethda = self.E_delta1(t_) #微小変位
-        F = self.E_first_derivative(Exdd, Eydd, Ethda, ev) #勾配
+        Exdd, Eydd, Ethda = self.E_delta1(t_) # 微小変位
+        F = self.E_first_derivative(Exdd, Eydd, Ethda, ev) # 勾配
 
-        Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd = self.E_delta2(t_) #微小変位
-        H = self.E_second_derivative(Exdd, Eydd, Ethda, Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd, ev) #ヘシアン
+        Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd = self.E_delta2(t_) # 微小変位
+        H = self.E_second_derivative(Exdd, Eydd, Ethda, Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd, ev) # ヘシアン
 
         invH = np.linalg.inv(H)
         delta_pose = np.dot(invH,-F)
@@ -187,10 +191,63 @@ class ICPProcess:
         txmin = copy.deepcopy(t_)
         return(txmin, evmin)
 
-    # def cg(self, init_pose):
+    # 共役勾配法
+    def cg(self, init_pose):
+        self.source_cloud = self.transpointcloud(self.scan_cloud, init_pose)
+        t_ = copy.deepcopy(init_pose)
 
+        # 点群同士の距離の総和、最近某探索
+        dists, self.indexes_temp = self.kd_tree.query(self.source_cloud)
 
+        # アニメーション生成
+        self.output_anim_graph(self.target_cloud, self.source_cloud, self.indexes_temp)
 
+        # 最近傍探索時の誤差計算
+        ev = np.sum(dists**2) / self.scan_points_num
+
+        evmin = ev
+        evold = 100000
+        count_first = True
+        while abs(evold - ev) > self.evthere:
+            evold = ev
+
+            Exdd, Eydd, Ethda = self.E_delta1(t_) # 微小変位
+            F = self.E_first_derivative(Exdd, Eydd, Ethda, ev) # 勾配
+
+            # iteration１回目は勾配方向を使う
+            if self.itr == 1:
+                if count_first == True:
+                    self.m_next = F # はじめに求めた勾配方向を次の接線方向成分に使用する。
+                    count_first = False
+                dx = -self.kk * F[0,0]
+                dy = -self.kk * F[1,0]
+                dth = -self.kk * F[2,0]
+            # iteration2回目以降は共役勾配ｍの方向へ進む
+            else:
+                Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd = self.E_delta2(t_) #微小変位
+                H = self.E_second_derivative(Exdd, Eydd, Ethda, Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd, ev) #ヘシアン
+                if count_first == True:
+                    alpha = - np.dot(self.m_next.T, np.dot(H,F)) / np.dot(self.m_next.T, np.dot(H, self.m_next))
+                    self.m = F + alpha*self.m_next #勾配ベクトルと、接線ベクトルを足し合わせて、共役勾配方向を求める 
+                    self.m_next = self.m #はじめに求めた共役勾配方向を次の接線方向成分に使用する。
+                    count_first = False
+                else:
+                    alpha = - np.dot(self.m.T, np.dot(H,F)) / np.dot(self.m.T, np.dot(H, self.m))
+                    self.m = F + alpha*self.m #勾配ベクトルと、接線ベクトルを足し合わせて、共役勾配方向を求める 
+                dx = -self.kk * self.m[0,0]
+                dy = -self.kk * self.m[1,0]
+                dth = -self.kk * self.m[2,0]
+
+            t_.x += dx
+            t_.y += dy
+            t_.th += dth
+
+            ev = self.calcValue(t_.x, t_.y, t_.th)
+
+            if ev < evmin:
+                evmin = ev
+                txmin = copy.deepcopy(t_)
+        return(txmin, evmin)
 
 
     # 勾配計算用の微小変位
@@ -296,7 +353,7 @@ class ICPProcess:
 
 
     # 総当りの分布と軌跡のグラフ
-    def trj_graph(self, itr):
+    def trj_graph(self):
         trj_fig = plt.figure("Trjectory", figsize=(16, 9), dpi=120)
         ax_trj = trj_fig.add_subplot(111)
         width_offset = 0.05
@@ -325,12 +382,13 @@ class ICPProcess:
         ax_hmap = ax_trj.pcolor(X_dist, Y_dist, EX_dist, cmap=cm.jet, vmin=er_min, vmax=er_max)
         ax_trj.plot(trj_array.x,trj_array.y,'or',linestyle='solid')
         plt.colorbar(ax_hmap, label='error average[m]')
-        ax_trj.text(0.1,1.05, 'iteration: {} '.format(itr), fontsize=15, transform=ax_trj.transAxes)
+        ax_trj.text(0.1,1.05, 'iteration: {} '.format(self.itr), fontsize=15, transform=ax_trj.transAxes)
         ax_trj.text(0.1,1.01, 'execution time[ms]: {} '.format(round(exe_time,2)), fontsize=15, transform=ax_trj.transAxes)
         ax_trj.set_xlabel('x [m]')
         ax_trj.set_ylabel('y [m]')
         ax_trj.grid()
         ax_trj.set_aspect('equal')
+        trj_fig.savefig(output_name + "trj.png")
         
 
 
@@ -380,21 +438,20 @@ if __name__ == "__main__":
     indexes = icp.getIndexes()
     itr = icp.getItr()
 
-    matched_cloud = icp.transpointcloud(scan_cloud, est_pose) #マッチングした点群
-    icp.output_anim_graph(target_cloud, matched_cloud, indexes) #マッチングしたときの点群をアニメーションに追加
+    matched_cloud = icp.transpointcloud(scan_cloud, est_pose) # マッチングした点群
+    icp.output_anim_graph(target_cloud, matched_cloud, indexes) # マッチングしたときの点群をアニメーションに追加
     
     # 出力
     print("estimated pose:","x",est_pose.x,"y",est_pose.y,"theta",est_pose.th)
     print("iteration:",itr)
     print("exe_time:",exe_time,"[ms]")
 
-    ani = animation.ArtistAnimation(icp.kdtree_fig, icp.frames_kdtree, interval=500, blit=True, repeat_delay=1000)  #アニメーション
-    icp.trj_graph(indexes, itr) # 軌跡のグラフ
+    ani = animation.ArtistAnimation(icp.kdtree_fig, icp.frames_kdtree, interval=500, blit=True, repeat_delay=1000)  # アニメーション
+    icp.trj_graph() # 軌跡のグラフ
 
     # グラフ保存
     # if sys.version_info < (3,7):
     #     ani.save(output_name + 'convergence_animation.gif')
     # else:
     #     ani.save(output_name + 'convergence_animation.mp4')
-    icp.trj_fig.savefig(output_name + "trj.png")
     plt.show()
