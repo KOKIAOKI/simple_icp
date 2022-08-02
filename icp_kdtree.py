@@ -1,17 +1,18 @@
-from os import X_OK
-from re import X
 import copy
-from xml.sax.handler import DTDHandler
-import numpy as np
 import math
-import pandas as pd
 import sys
 import time
-import matplotlib.pyplot as plt
+from os import X_OK
+from re import X
+from xml.sax.handler import DTDHandler
+
 import matplotlib.animation as animation
-from scipy.spatial import KDTree
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import scipy.linalg as linalg
 from matplotlib import cm
+from scipy.spatial import KDTree
 
 
 class Pose2D:
@@ -19,6 +20,7 @@ class Pose2D:
         self.x = ""
         self.y = ""
         self.th = ""
+
 
 class Array2D:
     def __init__(self):
@@ -44,13 +46,13 @@ class ICPProcess:
         self.init_fig = plt.figure("Initial pose")
         self.ax_init_fig = self.init_fig.add_subplot(111)
 
-        self.frames_kdtree = []
-        self.kdtree_fig = plt.figure("kd_tree", figsize=(16, 9), dpi=120)
-        self.ax_kd_tree = self.kdtree_fig.add_subplot(111)
-        self.ax_kd_tree.set_xlabel('x [m]')
-        self.ax_kd_tree.set_ylabel('y [m]')
-        self.ax_kd_tree.grid()
-        self.ax_kd_tree.set_aspect('equal')
+        self.frames_result = []
+        self.result_fig = plt.figure("Result", figsize=(16, 9), dpi=120)
+        self.ax_result = self.result_fig.add_subplot(121)
+        self.ax_result.set_xlabel('x [m]')
+        self.ax_result.set_ylabel('y [m]')
+        self.ax_result.grid()
+        self.ax_result.set_aspect('equal')
 
 
     # 点群平均値を(0,0)になるように、点群を移動
@@ -80,8 +82,9 @@ class ICPProcess:
         self.kd_tree = KDTree(self.target_cloud)# kd_tree
 
 
-    def setMode(self, optmode):
+    def setMode(self, optmode, output_name):
         self.mode = optmode
+        self.ax_result.set_title(output_name)
 
 
     def getIndexes(self):
@@ -90,6 +93,7 @@ class ICPProcess:
 
     def getItr(self):
         return self.itr
+
 
     def getEstPose(self):
         return self.pose_min
@@ -190,6 +194,7 @@ class ICPProcess:
         evmin = self.calcValue(t_.x, t_.y, t_.th)
         txmin = copy.deepcopy(t_)
         return(txmin, evmin)
+
 
     # 共役勾配法
     def cg(self, init_pose):
@@ -342,20 +347,20 @@ class ICPProcess:
 
     # アニメーショングラフ
     def output_anim_graph(self, target_cloud, scan_cloud, indexes_temp):
-        vis0 = self.ax_kd_tree.plot(target_cloud[:, 0], target_cloud[:, 1], "ok")
-        vis1 = self.ax_kd_tree.plot(scan_cloud[:, 0], scan_cloud[:, 1], "or")
+        vis0 = self.ax_result.plot(target_cloud[:, 0], target_cloud[:, 1], "ok")
+        vis1 = self.ax_result.plot(scan_cloud[:, 0], scan_cloud[:, 1], "or")
         vis2 = []
         for i in range(len(indexes_temp)):
             index = indexes_temp[i]
-            vis2_temp = self.ax_kd_tree.plot([target_cloud[index, 0], scan_cloud[i, 0]], [target_cloud[index, 1], scan_cloud[i, 1]], "-g")
+            vis2_temp = self.ax_result.plot([target_cloud[index, 0], scan_cloud[i, 0]], [target_cloud[index, 1], scan_cloud[i, 1]], "-g")
             vis2.extend(vis2_temp)
-        self.frames_kdtree.append(vis0 + vis1 + vis2)
+        self.frames_result.append(vis0 + vis1 + vis2)
 
 
     # 総当りの分布と軌跡のグラフ
     def trj_graph(self):
-        trj_fig = plt.figure("Trjectory", figsize=(16, 9), dpi=120)
-        ax_trj = trj_fig.add_subplot(111)
+        
+        ax_trj = self.result_fig.add_subplot(122)
         width_offset = 0.05
         max_offset = 1.0
         points = int((max_offset/width_offset)*2 + 1)
@@ -388,9 +393,7 @@ class ICPProcess:
         ax_trj.set_ylabel('y [m]')
         ax_trj.grid()
         ax_trj.set_aspect('equal')
-        trj_fig.savefig(output_name + "trj.png")
         
-
 
 if __name__ == "__main__":
     argv = sys.argv
@@ -416,7 +419,7 @@ if __name__ == "__main__":
     scan_cloud = icp.transpointcloud_zero(user_input_cloud) # scan点群をの平均値を(0,0)へ移動
     icp.setInputSource(scan_cloud) # スキャン点群を使いまわし用にセット
     icp.setInputTarget(target_cloud) # 地図点群を使いまわし用にセット
-    icp.setMode(mode)
+    icp.setMode(mode, output_name)
 
     # 初期化
     current_pose = Pose2D()
@@ -446,12 +449,14 @@ if __name__ == "__main__":
     print("iteration:",itr)
     print("exe_time:",exe_time,"[ms]")
 
-    ani = animation.ArtistAnimation(icp.kdtree_fig, icp.frames_kdtree, interval=500, blit=True, repeat_delay=1000)  # アニメーション
+    ani = animation.ArtistAnimation(icp.result_fig, icp.frames_result, interval=500, blit=True, repeat_delay=1000)  # アニメーション
     icp.trj_graph() # 軌跡のグラフ
 
     # グラフ保存
-    # if sys.version_info < (3,7):
-    #     ani.save(output_name + 'convergence_animation.gif')
-    # else:
-    #     ani.save(output_name + 'convergence_animation.mp4')
+    file_name = "output_folder/" + output_name + "_animation"
+    if sys.version_info < (3,7):
+        ani.save(file_name + '.gif')
+    else:
+        ani.save(file_name + '.mp4')
+        ani.save(file_name + '.gif', writer="imagemagick")
     plt.show()
