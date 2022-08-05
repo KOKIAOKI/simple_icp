@@ -138,7 +138,7 @@ class ICPProcess:
         dists, self.indexes_temp = self.kd_tree.query(self.source_cloud)
 
         # アニメーション生成
-        self.output_anim_graph(self.target_cloud, self.source_cloud, self.indexes_temp)
+        self.output_anim_graph(self.source_cloud)
 
         # 最近傍探索時の誤差計算
         ev = np.sum(dists**2) / self.scan_points_num
@@ -174,7 +174,7 @@ class ICPProcess:
         dists, self.indexes_temp = self.kd_tree.query(self.source_cloud)
 
         # アニメーション生成
-        self.output_anim_graph(self.target_cloud, self.source_cloud, self.indexes_temp)
+        self.output_anim_graph(self.source_cloud)
 
         # 最近傍探索時の誤差計算
         ev = np.sum(dists**2) / self.scan_points_num
@@ -205,7 +205,7 @@ class ICPProcess:
         dists, self.indexes_temp = self.kd_tree.query(self.source_cloud)
 
         # アニメーション生成
-        self.output_anim_graph(self.target_cloud, self.source_cloud, self.indexes_temp)
+        self.output_anim_graph(self.source_cloud)
 
         # 最近傍探索時の誤差計算
         ev = np.sum(dists**2) / self.scan_points_num
@@ -252,6 +252,10 @@ class ICPProcess:
             if ev < evmin:
                 evmin = ev
                 txmin = copy.deepcopy(t_)
+            else:
+                evmin = np.sum(dists**2) / self.scan_points_num
+                txmin = copy.deepcopy(init_pose)
+
         return(txmin, evmin)
 
 
@@ -346,13 +350,13 @@ class ICPProcess:
 
 
     # アニメーショングラフ
-    def output_anim_graph(self, target_cloud, scan_cloud, indexes_temp):
-        vis0 = self.ax_result.plot(target_cloud[:, 0], target_cloud[:, 1], "ok")
+    def output_anim_graph(self ,scan_cloud):
+        vis0 = self.ax_result.plot(self.target_cloud[:, 0], self.target_cloud[:, 1], "ok")
         vis1 = self.ax_result.plot(scan_cloud[:, 0], scan_cloud[:, 1], "or")
         vis2 = []
-        for i in range(len(indexes_temp)):
-            index = indexes_temp[i]
-            vis2_temp = self.ax_result.plot([target_cloud[index, 0], scan_cloud[i, 0]], [target_cloud[index, 1], scan_cloud[i, 1]], "-g")
+        for i in range(len(self.indexes_temp)):
+            index = self.indexes_temp[i]
+            vis2_temp = self.ax_result.plot([self.target_cloud[index, 0], scan_cloud[i, 0]], [self.target_cloud[index, 1], scan_cloud[i, 1]], "-g")
             vis2.extend(vis2_temp)
         self.frames_result.append(vis0 + vis1 + vis2)
 
@@ -361,7 +365,7 @@ class ICPProcess:
     def trj_graph(self):
         
         ax_trj = self.result_fig.add_subplot(122)
-        width_offset = 0.05
+        width_offset = 0.01
         max_offset = 1.0
         points = int((max_offset/width_offset)*2 + 1)
         offset_array = Array2D() 
@@ -442,7 +446,7 @@ if __name__ == "__main__":
     itr = icp.getItr()
 
     matched_cloud = icp.transpointcloud(scan_cloud, est_pose) # マッチングした点群
-    icp.output_anim_graph(target_cloud, matched_cloud, indexes) # マッチングしたときの点群をアニメーションに追加
+    icp.output_anim_graph(matched_cloud) # マッチングしたときの点群をアニメーションに追加
     
     # 出力
     print("estimated pose:","x",est_pose.x,"y",est_pose.y,"theta",est_pose.th)

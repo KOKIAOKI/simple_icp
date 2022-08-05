@@ -6,7 +6,7 @@ cd simple_icp
 python3 icp_kdtree.py <target.csv> <scan.csv>
 ```
 
-## How to run NDT <not cording now>
+## How to run NDT
 ```
 cd simple_icp
 python3 ndt_kdtree.py <target.csv> <scan.csv>
