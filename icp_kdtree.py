@@ -9,7 +9,6 @@ from xml.sax.handler import DTDHandler
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import scipy.linalg as linalg
 from matplotlib import cm
 from scipy.spatial import KDTree
@@ -365,7 +364,7 @@ class ICPProcess:
     def trj_graph(self):
         
         ax_trj = self.result_fig.add_subplot(122)
-        width_offset = 0.01
+        width_offset = 0.05
         max_offset = 1.0
         points = int((max_offset/width_offset)*2 + 1)
         offset_array = Array2D() 
@@ -403,11 +402,8 @@ if __name__ == "__main__":
     argv = sys.argv
     tar_cloud_path = argv[1]
     scan_cloud_path = argv[2]
-    tar_df = pd.read_csv(tar_cloud_path)
-    scan_df = pd.read_csv(scan_cloud_path)
-    target_cloud = tar_df.to_numpy()
-    user_input_cloud = scan_df.to_numpy()
-    del tar_df, scan_df
+    target_cloud = np.loadtxt(tar_cloud_path, delimiter=',')
+    user_input_cloud = np.loadtxt(scan_cloud_path, delimiter=',')
 
     # 点群を初期位置に移動
     mode = int(input("[ ICP/gradient:0, ICP/Newton:1, ICP/CG:2 ] >> "))
@@ -459,7 +455,7 @@ if __name__ == "__main__":
     # グラフ保存
     file_name = "output_folder/" + output_name + "_animation"
     if sys.version_info < (3,7):
-        ani.save(file_name + '.gif')
+        ani.save(file_name + '.gif', writer="imagemagick")
     else:
         ani.save(file_name + '.mp4')
         ani.save(file_name + '.gif', writer="imagemagick")
