@@ -45,13 +45,11 @@ class ICPProcess:
         self.init_fig = plt.figure("Initial pose")
         self.ax_init_fig = self.init_fig.add_subplot(111)
 
+        # Lazy-init for result figure (create after initial pose is confirmed)
         self.frames_result = []
-        self.result_fig = plt.figure("Result", figsize=(16, 9), dpi=120)
-        self.ax_result = self.result_fig.add_subplot(121)
-        self.ax_result.set_xlabel('x [m]')
-        self.ax_result.set_ylabel('y [m]')
-        self.ax_result.grid()
-        self.ax_result.set_aspect('equal')
+        self.result_fig = None
+        self.ax_result = None
+        self.result_title = "Result"
 
 
     # 点群平均値を(0,0)になるように、点群を移動
@@ -83,7 +81,9 @@ class ICPProcess:
 
     def setMode(self, optmode, output_name):
         self.mode = optmode
-        self.ax_result.set_title(output_name)
+        self.result_title = output_name
+        if self.ax_result is not None:
+            self.ax_result.set_title(output_name)
 
 
     def getIndexes(self):
@@ -102,17 +102,25 @@ class ICPProcess:
         self.itr = 1
         ev = 0
         evmin, evold = 10000, 10000
+        # Create result axes if needed (after initial pose figure is closed)
+        if self.ax_result is None:
+            self.result_fig = plt.figure("Result", figsize=(16, 9), dpi=120)
+            self.ax_result = self.result_fig.add_subplot(121)
+        else:
+            self.ax_result.cla()
+        # Configure axes
+        self.ax_result.set_title(self.result_title)
+        self.ax_result.set_xlabel('x [m]')
+        self.ax_result.set_ylabel('y [m]')
+        self.ax_result.grid()
+        self.ax_result.set_aspect('equal')
         while abs(evold - ev) > self.evthere:
             if self.itr > 1:
                 evold = ev
 
             new_pose = Pose2D()
-            if self.mode == 0:
-                new_pose, ev= self.gradient(current_pose) # 勾配法
-            elif self.mode == 1:
-                new_pose, ev= self.Newton(current_pose) # ニュートン法
-            elif self.mode == 2:
-                new_pose ,ev= self.cg(current_pose) # 共役勾配法
+            # Gauss-Newton with analytic se(2) Jacobian (point-to-point ICP)
+            new_pose, ev = self.gauss_newton_se2(current_pose)
 
             current_pose = new_pose
 
@@ -128,175 +136,68 @@ class ICPProcess:
             self.itr += 1
             
 
-    # 勾配法
-    def gradient(self, init_pose):
+    # Gauss-Newton step using se(2) analytic Jacobian (point-to-point)
+    def gauss_newton_se2(self, init_pose):
+        # 1) Transform scan by current pose
         self.source_cloud = self.transpointcloud(self.scan_cloud, init_pose)
-        t_ = copy.deepcopy(init_pose)
-
-        # 点群同士の距離の総和、最近傍探索
+        # 2) Nearest neighbors on target
         dists, self.indexes_temp = self.kd_tree.query(self.source_cloud)
-
-        # アニメーション生成
+        # 3) Visualization for this iteration
         self.output_anim_graph(self.source_cloud)
-
-        # 最近傍探索時の誤差計算
-        ev = np.sum(dists**2) / self.scan_points_num
-        evmin = ev
-        evold = 100000
-        while abs(evold - ev) > self.evthere:
-            evold = ev
-
-            Exdd, Eydd, Ethda = self.E_delta1(t_) # 微小変位
-            F = self.E_first_derivative(Exdd, Eydd, Ethda, ev) # 勾配
-            dx = -self.kk * F[0,0]
-            dy = -self.kk * F[1,0]
-            dth = -self.kk * F[2,0]
-
-            t_.x += dx
-            t_.y += dy
-            t_.th += dth
-
-            ev = self.calcValue(t_.x, t_.y, t_.th)
-
-            if ev < evmin:
-                evmin = ev
-                txmin = copy.deepcopy(t_)
-        return(txmin, evmin)
-
-
-    # Newton法
-    def Newton(self, init_pose):
-        self.source_cloud = self.transpointcloud(self.scan_cloud, init_pose)
-        t_ = copy.deepcopy(init_pose)
-
-        # 点群同士の距離の総和、最近某探索
-        dists, self.indexes_temp = self.kd_tree.query(self.source_cloud)
-
-        # アニメーション生成
-        self.output_anim_graph(self.source_cloud)
-
-        # 最近傍探索時の誤差計算
-        ev = np.sum(dists**2) / self.scan_points_num
-
-        Exdd, Eydd, Ethda = self.E_delta1(t_) # 微小変位
-        F = self.E_first_derivative(Exdd, Eydd, Ethda, ev) # 勾配
-
-        Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd = self.E_delta2(t_) # 微小変位
-        H = self.E_second_derivative(Exdd, Eydd, Ethda, Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd, ev) # ヘシアン
-
-        invH = np.linalg.inv(H)
-        delta_pose = np.dot(invH,-F)
-
-        t_.x += delta_pose[0,0]
-        t_.y += delta_pose[1,0]
-        t_.th += delta_pose[2,0]
-        evmin = self.calcValue(t_.x, t_.y, t_.th)
-        txmin = copy.deepcopy(t_)
-        return(txmin, evmin)
-
-
-    # 共役勾配法
-    def cg(self, init_pose):
-        self.source_cloud = self.transpointcloud(self.scan_cloud, init_pose)
-        t_ = copy.deepcopy(init_pose)
-
-        # 点群同士の距離の総和、最近某探索
-        dists, self.indexes_temp = self.kd_tree.query(self.source_cloud)
-
-        # アニメーション生成
-        self.output_anim_graph(self.source_cloud)
-
-        # 最近傍探索時の誤差計算
-        ev = np.sum(dists**2) / self.scan_points_num
-
-        evmin = ev
-        evold = 100000
-        count_first = True
-        while abs(evold - ev) > self.evthere:
-            evold = ev
-
-            Exdd, Eydd, Ethda = self.E_delta1(t_) # 微小変位
-            F = self.E_first_derivative(Exdd, Eydd, Ethda, ev) # 勾配
-
-            # iteration１回目は勾配方向を使う
-            if self.itr == 1:
-                if count_first == True:
-                    self.m_next = F # はじめに求めた勾配方向を次の接線方向成分に使用する。
-                    count_first = False
-                dx = -self.kk * F[0,0]
-                dy = -self.kk * F[1,0]
-                dth = -self.kk * F[2,0]
-            # iteration2回目以降は共役勾配ｍの方向へ進む
-            else:
-                Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd = self.E_delta2(t_) #微小変位
-                H = self.E_second_derivative(Exdd, Eydd, Ethda, Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd, ev) #ヘシアン
-                if count_first == True:
-                    alpha = - np.dot(self.m_next.T, np.dot(H,F)) / np.dot(self.m_next.T, np.dot(H, self.m_next))
-                    self.m = F + alpha*self.m_next #勾配ベクトルと、接線ベクトルを足し合わせて、共役勾配方向を求める 
-                    self.m_next = self.m #はじめに求めた共役勾配方向を次の接線方向成分に使用する。
-                    count_first = False
-                else:
-                    alpha = - np.dot(self.m.T, np.dot(H,F)) / np.dot(self.m.T, np.dot(H, self.m))
-                    self.m = F + alpha*self.m #勾配ベクトルと、接線ベクトルを足し合わせて、共役勾配方向を求める 
-                dx = -self.kk * self.m[0,0]
-                dy = -self.kk * self.m[1,0]
-                dth = -self.kk * self.m[2,0]
-
-            t_.x += dx
-            t_.y += dy
-            t_.th += dth
-
-            ev = self.calcValue(t_.x, t_.y, t_.th)
-
-            if ev < evmin:
-                evmin = ev
-                txmin = copy.deepcopy(t_)
-            else:
-                evmin = np.sum(dists**2) / self.scan_points_num
-                txmin = copy.deepcopy(init_pose)
-
-        return(txmin, evmin)
-
-
-    # 勾配計算用の微小変位
-    def E_delta1(self, t_):
-        Exdd = self.calcValue(t_.x + self.dd, t_.y, t_.th)
-        Eydd = self.calcValue(t_.x, t_.y + self.dd, t_.th)
-        Ethda = self.calcValue(t_.x, t_.y, t_.th + self.da)
-        return (Exdd,Eydd,Ethda)
-
-
-    # 勾配計算
-    def E_first_derivative(self, Exdd, Eydd, Ethda, ev):
-        dEtx = (Exdd - ev)/ self.dd
-        dEty = (Eydd - ev)/ self.dd
-        dEth = (Ethda - ev)/ self.da
-        F = np.around(np.array([[dEtx],[dEty],[dEth]]),decimals=5)
-        return F
-
-
-    # ヘッセ行列計算用の微小変位
-    def E_delta2(self, t_):
-        Ex2dd = self.calcValue(t_.x + 2*self.dd, t_.y, t_.th)
-        Ey2dd = self.calcValue(t_.x, t_.y + 2*self.dd, t_.th)
-        Eth2da = self.calcValue(t_.x, t_.y, t_.th + 2*self.da)
-        Exddydd = self.calcValue(t_.x + self.dd, t_.y + self.dd, t_.th)
-        Exddthdd = self.calcValue(t_.x + self.dd, t_.y, t_.th + self.da)
-        Eyddthdd = self.calcValue(t_.x, t_.y + self.dd, t_.th + self.da)
-        return (Ex2dd,Ey2dd,Eth2da,Exddydd,Exddthdd,Eyddthdd)
-
-
-    # ヘッセ行列計算
-    def E_second_derivative(self, Exdd, Eydd, Ethda, Ex2dd, Ey2dd, Eth2da, Exddydd, Exddthdd, Eyddthdd, ev):
-        dEtxtx = (Ex2dd - 2*Exdd + ev) / pow(self.dd,2)
-        dEtyty =  (Ey2dd - 2*Eydd + ev) / pow(self.dd,2)
-        dEtthtth = (Eth2da - 2*Ethda + ev) / pow(self.da,2)
-        dEtxty = (Exddydd - Eydd - Exdd + ev) / pow(self.dd,2)
-        dEtxth = (Exddthdd - Ethda -Exdd + ev) / self.dd*self.da
-        dEtyth = (Eyddthdd - Ethda - Eydd + ev) / self.dd*self.da
-        H = np.around(np.array([[dEtxtx,dEtxty,dEtxth],[dEtxty,dEtyty,dEtyth],[dEtxth,dEtyth,dEtthtth]]),decimals=5)
-        return H
-
+        
+        # 4) Build residual vector r and Jacobian J
+        N = self.scan_points_num
+        J = np.zeros((2 * N, 3))
+        r = np.zeros((2 * N, 1))
+        for i in range(N):
+            xi, yi = self.source_cloud[i, 0], self.source_cloud[i, 1]
+            idx = int(self.indexes_temp[i])
+            qx, qy = self.target_cloud[idx, 0], self.target_cloud[idx, 1]
+            # residual e_i = (Rp_i + t) - q_i
+            r[2 * i, 0] = xi - qx
+            r[2 * i + 1, 0] = yi - qy
+            # Analytic Jacobian wrt left-multiplied twist [vx, vy, omega]
+            # de/d[vx,vy,omega] = [[1, 0, -y_i], [0, 1, x_i]]
+            J[2 * i, 0] = 1.0
+            J[2 * i, 1] = 0.0
+            J[2 * i, 2] = -yi
+            J[2 * i + 1, 0] = 0.0
+            J[2 * i + 1, 1] = 1.0
+            J[2 * i + 1, 2] = xi
+        
+        # 5) Solve normal equations (with tiny damping for numerical stability)
+        H = J.T @ J
+        g = J.T @ r
+        lam = 1e-8
+        H_damped = H + lam * np.eye(3)
+        try:
+            delta = -np.linalg.solve(H_damped, g)  # [dvx, dvy, domega]
+        except np.linalg.LinAlgError:
+            delta = -np.linalg.pinv(H_damped) @ g
+        
+        dvx = float(delta[0, 0])
+        dvy = float(delta[1, 0])
+        domega = float(delta[2, 0])
+        
+        # 6) Left-multiply update: T <- Exp(delta^) * T
+        # For pose (x, y, th):
+        #   R_delta = R(domega), t_delta = [dvx, dvy]
+        #   x_new, y_new = R_delta @ [x, y] + t_delta; th_new = th + domega
+        new_pose = copy.deepcopy(init_pose)
+        c = math.cos(domega)
+        s = math.sin(domega)
+        x_new = c * new_pose.x - s * new_pose.y + dvx
+        y_new = s * new_pose.x + c * new_pose.y + dvy
+        th_new = new_pose.th + domega
+        new_pose.x = x_new
+        new_pose.y = y_new
+        new_pose.th = th_new
+        
+        # 7) Evaluate new error (mean squared) after the update
+        updated_cloud = self.transpointcloud(self.scan_cloud, new_pose)
+        d2, self.indexes_temp = self.kd_tree.query(updated_cloud)
+        evmin = np.sum(d2**2) / self.scan_points_num
+        return new_pose, evmin
 
     # 評価関数
     def calcValue(self, tx, ty, th):
@@ -319,7 +220,8 @@ class ICPProcess:
     # 初期位置設定
     def init_pose(self, user_input_cloud, current_pose):
         self.output_init_graph(user_input_cloud)
-        self.init_fig.show()
+        self.init_fig.canvas.draw_idle()
+        plt.pause(0.001)
         print("<< Please set the initail pose >>")
         continue_init = 0
         while (continue_init == 0):
@@ -329,8 +231,11 @@ class ICPProcess:
             self.ax_init_fig.cla()
             init_temp_cloud = self.transpointcloud(self.scan_cloud, current_pose)
             self.output_init_graph(init_temp_cloud)
-            self.init_fig.show()
+            self.init_fig.canvas.draw_idle()
+            plt.pause(0.001)
             continue_init = int(input("Are you sure you want to conduct ICP from this pose? No:0 Yes:1 >>"))
+        # Close the initial pose figure to switch to the result view
+        plt.close(self.init_fig)
         return current_pose
 
 
@@ -405,21 +310,15 @@ if __name__ == "__main__":
     target_cloud = np.loadtxt(tar_cloud_path, delimiter=',')
     user_input_cloud = np.loadtxt(scan_cloud_path, delimiter=',')
 
-    # 点群を初期位置に移動
-    mode = int(input("[ ICP/gradient:0, ICP/Newton:1, ICP/CG:2 ] >> "))
-    if mode == 0:
-        output_name = "gradient"
-    if mode == 1:
-        output_name = "newton"
-    if mode == 2:
-        output_name = "CG"
+    # 本実装は Gauss-Newton(se(2) ヤコビアン) のみを使用
+    output_name = "gauss_newton"
 
     # ICPの基本プロセスのインスタンス化
     icp = ICPProcess()
     scan_cloud = icp.transpointcloud_zero(user_input_cloud) # scan点群をの平均値を(0,0)へ移動
     icp.setInputSource(scan_cloud) # スキャン点群を使いまわし用にセット
     icp.setInputTarget(target_cloud) # 地図点群を使いまわし用にセット
-    icp.setMode(mode, output_name)
+    icp.setMode(3, output_name)  # modeは未使用、タイトル設定のために呼ぶ
 
     # 初期化
     current_pose = Pose2D()
