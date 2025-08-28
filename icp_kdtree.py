@@ -50,6 +50,12 @@ class ICPProcess:
         self.result_fig = None
         self.ax_result = None
         self.result_title = "Result"
+        # Optimization algorithm: 'gn' (Gauss-Newton) or 'lm' (Levenberg-Marquardt)
+        self.algorithm = "gn"
+        # LM damping parameters
+        self.lm_lambda = 1e-3
+        self.lm_lambda_min = 1e-9
+        self.lm_lambda_max = 1e9
 
 
     # 点群平均値を(0,0)になるように、点群を移動
@@ -85,6 +91,13 @@ class ICPProcess:
         if self.ax_result is not None:
             self.ax_result.set_title(output_name)
 
+    def setAlgorithm(self, method_str):
+        m = str(method_str).strip().lower()
+        if m in ("lm", "levenberg-marquardt", "levenberg_marquardt"):
+            self.algorithm = "lm"
+        else:
+            self.algorithm = "gn"
+
 
     def getIndexes(self):
         return self.indexes_temp
@@ -119,8 +132,11 @@ class ICPProcess:
                 evold = ev
 
             new_pose = Pose2D()
-            # Gauss-Newton with analytic se(2) Jacobian (point-to-point ICP)
-            new_pose, ev = self.gauss_newton_se2(current_pose)
+            # Optimization step
+            if getattr(self, "algorithm", "gn") == "lm":
+                new_pose, ev = self.levenberg_marquardt_se2(current_pose)
+            else:
+                new_pose, ev = self.gauss_newton_se2(current_pose)
 
             current_pose = new_pose
 
@@ -198,6 +214,73 @@ class ICPProcess:
         d2, self.indexes_temp = self.kd_tree.query(updated_cloud)
         evmin = np.sum(d2**2) / self.scan_points_num
         return new_pose, evmin
+
+    # Levenberg-Marquardt step using se(2) analytic Jacobian (point-to-point)
+    def levenberg_marquardt_se2(self, init_pose):
+        # 1) Transform scan by current pose
+        self.source_cloud = self.transpointcloud(self.scan_cloud, init_pose)
+        # 2) Nearest neighbors on target
+        dists, self.indexes_temp = self.kd_tree.query(self.source_cloud)
+        # 3) Visualization for this iteration
+        self.output_anim_graph(self.source_cloud)
+
+        # 4) Build residual vector r and Jacobian J
+        N = self.scan_points_num
+        J = np.zeros((2 * N, 3))
+        r = np.zeros((2 * N, 1))
+        for i in range(N):
+            xi, yi = self.source_cloud[i, 0], self.source_cloud[i, 1]
+            idx = int(self.indexes_temp[i])
+            qx, qy = self.target_cloud[idx, 0], self.target_cloud[idx, 1]
+            # residual e_i = (Rp_i + t) - q_i
+            r[2 * i, 0] = xi - qx
+            r[2 * i + 1, 0] = yi - qy
+            # Analytic Jacobian wrt left-multiplied twist [vx, vy, omega]
+            J[2 * i, 0] = 1.0
+            J[2 * i, 1] = 0.0
+            J[2 * i, 2] = -yi
+            J[2 * i + 1, 0] = 0.0
+            J[2 * i + 1, 1] = 1.0
+            J[2 * i + 1, 2] = xi
+
+        # 5) Solve damped normal equations
+        H = J.T @ J
+        g = J.T @ r
+        lam = getattr(self, "lm_lambda", 1e-3)
+        H_damped = H + lam * np.eye(3)
+        try:
+            delta = -np.linalg.solve(H_damped, g)
+        except np.linalg.LinAlgError:
+            delta = -np.linalg.pinv(H_damped) @ g
+
+        dvx = float(delta[0, 0])
+        dvy = float(delta[1, 0])
+        domega = float(delta[2, 0])
+
+        # 6) Left-multiply update: T <- Exp(delta^) * T
+        new_pose = copy.deepcopy(init_pose)
+        c = math.cos(domega)
+        s = math.sin(domega)
+        x_new = c * new_pose.x - s * new_pose.y + dvx
+        y_new = s * new_pose.x + c * new_pose.y + dvy
+        th_new = new_pose.th + domega
+        new_pose.x = x_new
+        new_pose.y = y_new
+        new_pose.th = th_new
+
+        # 7) Evaluate errors (mean squared)
+        ev_curr = np.sum(dists**2) / N
+        updated_cloud = self.transpointcloud(self.scan_cloud, new_pose)
+        d2, self.indexes_temp = self.kd_tree.query(updated_cloud)
+        ev_new = np.sum(d2**2) / N
+
+        # 8) Adapt lambda and accept/reject step
+        if ev_new < ev_curr:
+            self.lm_lambda = max(lam * 0.5, getattr(self, "lm_lambda_min", 1e-9))
+            return new_pose, ev_new
+        else:
+            self.lm_lambda = min(lam * 2.0, getattr(self, "lm_lambda_max", 1e9))
+            return init_pose, ev_curr
 
     # 評価関数
     def calcValue(self, tx, ty, th):
@@ -310,8 +393,14 @@ if __name__ == "__main__":
     target_cloud = np.loadtxt(tar_cloud_path, delimiter=',')
     user_input_cloud = np.loadtxt(scan_cloud_path, delimiter=',')
 
-    # 本実装は Gauss-Newton(se(2) ヤコビアン) のみを使用
-    output_name = "gauss_newton"
+    # 方式選択: Gauss-Newton or Levenberg-Marquardt
+    method_in = input("Select optimization method [1: Gauss-Newton, 2: Levenberg-Marquardt] (default: 1) >> ").strip()
+    if method_in in ("2", "lm", "LM", "Levenberg", "Levenberg-Marquardt", "levenberg", "levenberg_marquardt"):
+        selected_method = "lm"
+        output_name = "levenberg_marquardt"
+    else:
+        selected_method = "gn"
+        output_name = "gauss_newton"
 
     # ICPの基本プロセスのインスタンス化
     icp = ICPProcess()
@@ -319,6 +408,7 @@ if __name__ == "__main__":
     icp.setInputSource(scan_cloud) # スキャン点群を使いまわし用にセット
     icp.setInputTarget(target_cloud) # 地図点群を使いまわし用にセット
     icp.setMode(3, output_name)  # modeは未使用、タイトル設定のために呼ぶ
+    icp.setAlgorithm(selected_method)
 
     # 初期化
     current_pose = Pose2D()
