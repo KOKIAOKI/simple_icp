@@ -1,16 +1,21 @@
 # simple_icp
 
 ## How to run ICP
-Specify two types of csv (target.csv and scan.csv) containing x coordinates in the first row and y coordinates in the second row. Refer to some datasets.
+Provide two CSV files (target.csv and scan.csv) with two columns: x in the first column and y in the second column. Sample data is in `1_test_dataset/` and `2_tunnel_dataset/`.
 ```
 cd simple_icp
+# create output folder for saved animations
+mkdir -p output_folder
+
 python3 icp_kdtree.py <target.csv> <scan.csv>
+# example
+python3 icp_kdtree.py 1_test_dataset/target_sample.csv 1_test_dataset/scan_sample.csv
 ```
 ## Operation example 
-You can chose 3 types optimization methods.
-Then, decide the initial pose while referring to the displayed graph. You can fixed the initial pose.
+You can choose 2 optimization methods: Gauss-Newton or Levenberg-Marquardt.
+Then, decide the initial pose while referring to the displayed graph. You can fix the initial pose.
 ```
-[ ICP/gradient:0, ICP/Newton:1, ICP/CG:2 ] >> 1
+Select optimization method [1: Gauss-Newton, 2: Levenberg-Marquardt] (default: 1) >> 1
 << Please set the initail pose >>
 initial_x >> 7
 initial_y >> 3.5
